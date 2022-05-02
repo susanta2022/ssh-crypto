@@ -4,19 +4,21 @@
   connection: local
 
   vars:
-    user_name: icic
-    group: icic
-    passphrase: Riju@8100006942
-    user_email: mail2susantasadhukhan@gmail.com
+    user_name: "{{user_name}}"
+    group: "{{group}}"
+    passphrase: "{{passphrase}}"
+    user_email: "{{user_email}}"
+    password: "{{password}}"
+   
 
   tasks:
-       - name: create a password for user {{user_name}}
-         shell: python -c 'import crypt,getpass; print(crypt.crypt(getpass.getpass(), crypt.mksalt(crypt.METHOD_SHA512)))'
-         register: password
+#        - name: create a password for user {{user_name}}
+#          shell: python -c 'import crypt,getpass; print(crypt.crypt(getpass.getpass(), crypt.mksalt(crypt.METHOD_SHA512)))'
+#          register: password
            
 
        - name: set passsword
-         set_fact: passwd='{{password.stdout}}'
+         set_fact: passwd='{{password}}'
 
        - name: set user {{user_name}} as a global variable
          set_fact: user_name='{{user_name}}'
@@ -36,12 +38,12 @@
         
        - name: create a directory for ssh user {{user_name}}
          file:
-           path: ~/.ssh/{{group}}/{{user_name}}
+           path: /root/.ssh/{{group}}/{{user_name}}
            state: directory
 
        - name: create a ssh key for user {{user_name}}
          openssh_keypair:
-            path: "~/.ssh/{{group}}/{{user_name}}/id_{{user_name}}"
+            path: "/root/.ssh/{{group}}/{{user_name}}/id_{{user_name}}"
             type: rsa
             size: 4096
             state: present
@@ -49,7 +51,7 @@
 
 
        - name: encrypt private key for user {{user_name}}
-         command: openssl rsa -in ~/.ssh/{{group}}/{{user_name}}/id_{{user_name}} -out ~/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.pem       
+         command: openssl rsa -in /root/.ssh/{{group}}/{{user_name}}/id_{{user_name}} -out /root/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.pem       
          register: encrypt_private
 
        - debug:
@@ -58,8 +60,8 @@
 
        - name: Convert private key for user {{user_name}} to PKCS8 format with passphrase
          community.crypto.openssl_privatekey_convert:
-            src_path: ~/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.pem
-            dest_path: ~/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.key
+            src_path: /root/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.pem
+            dest_path: /root/.ssh/{{group}}/{{user_name}}/id_{{user_name}}.key
             dest_passphrase: '{{passphrase}}'
             format: pkcs8    
            
@@ -71,10 +73,10 @@
   connection: ssh
   gather_facts: yes
           
-
+  vars:
+     group_permission: "{{group_permission}}"
+     
   tasks:
-
-    
      - name: set user {{hostvars['localhost']['user_name']}} as local scope
        set_fact: user="{{hostvars['localhost']['user_name']}}"
 
@@ -85,7 +87,8 @@
 
      - debug:
          msg: "{{  hostvars['localhost']['passwd']  }}"
-
+         
+         
      - name: <<<========== Checking if a /home/{{user}}/.ssh/ exists or not ==============>>>
        stat:
             path: "/home/{{user}}/.ssh"
@@ -95,10 +98,8 @@
        set_fact: user_ssh_path=0
 
      - name: <============ set variable for ssh_path if path is exist =============>
-       set_fact: user_ssh_path=1
-       notify: send email
+       set_fact: user_ssh_path=1       
        when: ssh_path.stat.exists
-   
     
      - name:  Make sure we have a {{group}} group
        group:
@@ -109,9 +110,10 @@
        lineinfile:
           dest: /etc/sudoers            
           state: present
-          regexp: '^%{{user}}'
+          regexp: '^%{{group}}'
           # :ALL for root access , for specific action :/usr/bin/specific_action           
-          line: '%{{group}} ALL=(ALL) NOPASSWD: /usr/bin/nano'
+          #line: '%{{group}} ALL=(ALL) NOPASSWD:ALL'
+          line: '{{group_permission}}'
           validate: 'visudo -cf %s'
 
      - name: Creating user {{user}} with specific access
@@ -133,7 +135,7 @@
               key: "{{item}}"
 
        with_file: 
-          - /home/ansadmin/.ssh/{{group}}/{{user}}/id_{{user}}.pub 
+          - /root/.ssh/{{group}}/{{user}}/id_{{user}}.pub 
 
      - name: check public dns for node
        command: curl http://checkip.amazonaws.com
@@ -142,60 +144,61 @@
 
      - name: set public ip
        set_fact: public_ip ='{{public_ip.stdout}}'
-       notify: send email
-  
 
-
-
-
+     
+       
+     
+     
 - hosts: 127.0.0.1
   connection: local
-
 
   vars:
     user: "{{hostvars['localhost']['user_name']}}"
     group: "{{hostvars['localhost']['group']}}"
     passphrase: "{{hostvars['localhost']['passphrase']}}"
-    public_ip: "{% for host in groups['demo'] %}  {{hostvars[host]['public_ip'].stdout,}}   {% endfor %}" 
-
-    email: "{{hostvars['localhost']['email']}}"
-    user_path: "{% for host in groups['demo'] %}{{hostvars[host]['user_ssh_path']}}{% endfor %}"    
+    public_ip: "{% for host in groups['demo'] %}  {{hostvars[host]['public_ip'].stdout}}   {% endfor %}" 
+    user_path: "{% for host in groups['demo'] %}{{hostvars[host]['user_ssh_path']}}{% endfor %}"
+    email: "{{hostvars['localhost']['email']}}" 
+    SMTP_user: "{{SMTP_user}}"
+    SMTP_PASSWD: "{{SMTP_PASSWD}}"
 
   tasks:
-        - debug:
-             msg: "{{user_path}}" 
+        - debug: 
              #msg: "{% for host in groups['demo'] %}  {{hostvars[host]['public_ip'].stdout}}   {% endfor %}"
-              #msg: "Hi {{user}}, your ssh private key passphrase {{passphrase}} and you are under a group {{group}}
-                   # Your system public ip is/are {{public_ip}} your email address {{email}} 
+              msg: "Hi {{user}}, your ssh private key passphrase {{passphrase}} and you are under a group {{group}}
+                    Your system public ip is/are {{public_ip}} your email address {{email}} 
 
-              #"
-        - name: enter SMPT server user name
-          shell: python -c 'import crypt,getpass; print(getpass.getpass())'
-          register: username
+              "
+#         - name: enter SMPT server user name
+#           shell: python -c 'import crypt,getpass; print(getpass.getpass())'
+#           register: username
 
-        - name: enter SMPT server password
-          shell: python -c 'import crypt,getpass; print(getpass.getpass())'
-          register: password
+#         - name: enter SMPT server password
+#           shell: python -c 'import crypt,getpass; print(getpass.getpass())'
+#           register: password
              
         - name: send email using gmail SMPT Server
           mail:
              host: smtp.gmail.com
              port: 587
-             username: "aidevelopergroup@gmail.com"
-             password: "Shreya@1998"
+             username: "{{SMTP_user}}"
+             password: "{{SMTP_PASSWD}}"
              to: "{{email}}"
              subject: SSH ACCESS
              subtype: html
              body: " Hi <h4>{{user_name}}</h4></br><p>your ssh private key passphrase <b>{{passphrase}}</b> and you are under a group <b>{{group}}</b>
-                    Your system public ip is/are <b>{{public_ip}}</b> , you can connect remote server like <b>ssh -i private_key {{user}}@public_ip</b></p></br><p> never share private key with passphrase to anyone </p></br><p> If you face any kind of problem contact our devops administrator</p></br><p> <h3>Thank You</h3> </p>"
+                    Your system public ip is/are <b>{{public_ip}}</b> , you can connect remote server using ssh client like <b>ssh -i id_{{user_name}}.key {{user}}@public_ip</b></p></br>
+                    <p> <u> if you want to connect remote server using putty then follow this command </u></p></br>
+                    <ul>
+                    <li>download the private key</li>
+                    <li>openssl rsa -in id_username.key -passin pass:passphrase  > username.pem</li>
+                    <li>now generate .ppk file from .pem file </li>
+                    </ul></br>
+                    
+                    <p> never share private key with passphrase to anyone </p>
+                    </br><p> If you face any kind of problem contact our devops administrator</p></br>
+                    <p> <h3>Thank You</h3> </p>"
 
-             attach: /home/ansadmin/.ssh/{{group}}/{{user}}/id_{{user}}.key
+             attach: /root/.ssh/{{group}}/{{user}}/id_{{user}}.key
           delegate_to: localhost
-          when: not "1" in user_path
-
-
-
-
-   
- 
-
+          when: not "1" in user_path      
